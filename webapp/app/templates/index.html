@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>招标延期核对助手</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+         background: #f0f2f5; color: #1f2937; }
+  header { background: #1d4ed8; color: #fff; padding: 20px 32px; }
+  header h1 { margin: 0 0 6px; font-size: 22px; }
+  header p { margin: 0; font-size: 13px; opacity: .85; }
+  main { max-width: 1180px; margin: 24px auto; padding: 0 20px; }
+  .card { background: #fff; border-radius: 10px; padding: 20px 24px; margin-bottom: 20px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  form { display: flex; gap: 12px; flex-wrap: wrap; }
+  input[name="url"] { flex: 1 1 420px; padding: 11px 14px; border: 1px solid #cbd5e1;
+                      border-radius: 8px; font-size: 14px; }
+  button { padding: 11px 28px; background: #1d4ed8; color: #fff; border: none;
+           border-radius: 8px; font-size: 14px; cursor: pointer; }
+  button:hover { background: #1e40af; }
+  .hint { margin-top: 10px; font-size: 12px; color: #64748b; }
+  .hint code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+  .meta-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: #475569; margin-bottom: 14px; }
+  .meta-row span { background: #f8fafc; border: 1px solid #e2e8f0; padding: 4px 10px; border-radius: 999px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid #e2e8f0; padding: 9px 10px; text-align: left; vertical-align: top; }
+  th { background: #f8fafc; white-space: nowrap; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px;
+           font-weight: 600; white-space: nowrap; }
+  .badge-有效 { background: #dcfce7; color: #166534; }
+  .badge-待核实 { background: #ffedd5; color: #9a3412; }
+  .badge-未公布 { background: #e2e8f0; color: #475569; }
+  .deadline-pending { color: #9a3412; font-weight: 600; }
+  .note { color: #64748b; font-size: 12px; margin-top: 4px; }
+  details { margin-top: 8px; }
+  details summary { cursor: pointer; color: #1d4ed8; font-size: 12px; }
+  .ann-list { margin: 8px 0 0; padding-left: 18px; font-size: 12px; }
+  .ann-list li { margin-bottom: 5px; }
+  .ann-list a { color: #1d4ed8; text-decoration: none; }
+  .ann-list a:hover { text-decoration: underline; }
+  .tag { display: inline-block; background: #eef2ff; color: #3730a3; border-radius: 4px;
+         padding: 1px 7px; font-size: 11px; margin-right: 6px; }
+  .tag-ext { background: #fef3c7; color: #92400e; }
+  .errors { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px;
+            padding: 12px 16px; font-size: 13px; }
+  .errors ul { margin: 6px 0 0; padding-left: 20px; }
+  .empty { text-align: center; color: #64748b; padding: 32px; font-size: 14px; }
+  h2 { font-size: 16px; margin: 0 0 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>招标延期核对助手</h1>
+  <p>输入招标公告列表页地址，沿同站点“下一页”抓取详情，按项目编号归并公告并核对当前投标截止时间。</p>
+</header>
+<main>
+  <div class="card">
+    <form method="get" action="/">
+      <input type="url" name="url" value="{{ entry_url }}" placeholder="https://example.gov.cn/notice/list" required>
+      <button type="submit">开始核对</button>
+    </form>
+    <div class="hint">
+      示例站点入口：<code>http://example-site/list/page_1.html</code>（Docker 内网地址，容器间抓取；公告链接经本机代理打开）
+    </div>
+  </div>
+
+  {% if report is not none %}
+  <div class="card">
+    <h2>抓取概况</h2>
+    <div class="meta-row">
+      <span>列表页：{{ report.visited_list_pages|length }} 个</span>
+      <span>有效公告：{{ report.announcements|length }} 条</span>
+      <span>归并项目：{{ results|length }} 个</span>
+      <span>跳过链接：{{ report.skipped_urls|length }} 个</span>
+      <span>抓取错误：{{ report.errors|length }} 个</span>
+    </div>
+    {% if report.visited_list_pages %}
+    <table>
+      <tr><th>已遍历列表页（顺序即“下一页”路径）</th></tr>
+      {% for page in report.visited_list_pages %}
+      <tr><td><a href="/view?url={{ page|urlencode }}" target="_blank">{{ page }}</a></td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {% if report.skipped_urls %}
+    <details>
+      <summary>查看跳过的链接（{{ report.skipped_urls|length }}）</summary>
+      <table style="margin-top:8px;">
+        <tr><th>链接</th><th>原因</th></tr>
+        {% for link, reason in report.skipped_urls %}
+        <tr><td style="word-break:break-all;">{{ link }}</td><td>{{ reason }}</td></tr>
+        {% endfor %}
+      </table>
+    </details>
+    {% endif %}
+    {% if report.errors %}
+    <div class="errors" style="margin-top:12px;">
+      <strong>抓取错误</strong>
+      <ul>{% for err in report.errors %}<li>{{ err }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>各项目当前核对结果</h2>
+    {% if results %}
+    <table>
+      <thead>
+        <tr>
+          <th>项目编号</th>
+          <th>项目名称</th>
+          <th>核对状态</th>
+          <th>当前投标截止时间</th>
+          <th>公告记录与链接</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for project in results %}
+        <tr>
+          <td style="white-space:nowrap;font-weight:600;">{{ project.project_no }}</td>
+          <td>{{ project.project_name }}</td>
+          <td><span class="badge badge-{{ project.status.value }}">{{ project.status.value }}</span>
+              <div class="note">{{ project.note }}</div>
+          </td>
+          <td>
+            {% if project.current_deadline %}
+              <span class="current-deadline">{{ project.current_deadline }}</span>
+            {% elif project.status.value == '待核实' %}
+              <span class="deadline-pending current-deadline">待核实（旧截止时间已失效，不再展示）</span>
+            {% else %}
+              <span class="current-deadline" style="color:#64748b;">未公布</span>
+            {% endif %}
+          </td>
+          <td>
+            <details>
+              <summary>{{ project.announcements|length }} 条公告（按发布时间排列）</summary>
+              <ol class="ann-list">
+                {% for ann in project.announcements %}
+                <li>
+                  {% if ann.notice_type %}<span class="tag">{{ ann.notice_type }}</span>{% endif %}
+                  {% if ann.declares_extension %}<span class="tag tag-ext">声明延期</span>{% endif %}
+                  <a href="/view?url={{ ann.url|urlencode }}" target="_blank">{{ ann.title or ann.url }}</a>
+                  <div class="note">
+                    发布时间：{{ ann.publish_time or '未识别' }} ｜
+                    原文截止时间：{% if ann.deadline %}{{ ann.deadline }}{% else %}未写明{% endif %}
+                  </div>
+                </li>
+                {% endfor %}
+              </ol>
+            </details>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">未从入口列表页解析到任何含项目编号的公告，请检查地址或站点结构。</div>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+</body>
+</html>

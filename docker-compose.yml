@@ -1,0 +1,14 @@
+services:
+  webapp:
+    build: ./webapp
+    ports:
+      - "8000:8000"
+    depends_on:
+      - example-site
+    restart: unless-stopped
+
+  example-site:
+    build: ./example-site
+    ports:
+      - "8080:80"
+    restart: unless-stopped
