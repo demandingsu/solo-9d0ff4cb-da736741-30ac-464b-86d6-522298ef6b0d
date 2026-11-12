@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>发布结果 · 招标延期核对助手</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+         background: #f0f2f5; color: #1f2937; }
+  header { background: #1d4ed8; color: #fff; padding: 20px 32px; }
+  header h1 { margin: 0 0 6px; font-size: 22px; }
+  header p { margin: 0; font-size: 13px; opacity: .85; }
+  main { max-width: 920px; margin: 24px auto; padding: 0 20px; }
+  .card { background: #fff; border-radius: 10px; padding: 22px 26px; margin-bottom: 20px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h2 { font-size: 16px; margin: 0 0 14px; }
+  .status-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .badge { display: inline-block; padding: 5px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+  .badge-published { background: #dcfce7; color: #166534; }
+  .badge-conflict { background: #fee2e2; color: #991b1b; }
+  .badge-pending { background: #ffedd5; color: #9a3412; }
+  .message { font-size: 14px; line-height: 1.7; }
+  .meta { margin-top: 16px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+  .meta div { display: flex; gap: 14px; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+  .meta div:last-child { border-bottom: none; }
+  .meta .k { color: #64748b; width: 110px; flex-shrink: 0; }
+  .meta .v { word-break: break-all; }
+  .meta .v a { color: #1d4ed8; }
+  .pending-box { background: #fff7e6; border: 1px solid #ffd591; border-radius: 8px;
+                 padding: 14px 18px; margin-top: 16px; }
+  .pending-box p { font-size: 13px; color: #7c4a03; margin: 0 0 12px; line-height: 1.7; }
+  .pending-box form { display: inline; }
+  .pending-box button { padding: 8px 18px; border: none; border-radius: 7px; background: #d97706;
+                        color: #fff; font-size: 13px; cursor: pointer; }
+  .pending-box button:hover { background: #b45309; }
+  .steps { margin: 14px 0 0; padding-left: 20px; font-size: 12px; color: #475569; line-height: 1.8; }
+  .steps li { margin-bottom: 2px; }
+  pre.content { margin: 14px 0 0; padding: 14px 16px; background: #f8fafc; border: 1px solid #e2e8f0;
+                border-radius: 8px; white-space: pre-wrap; word-break: break-word; font-size: 13px;
+                line-height: 1.8; color: #334155; font-family: inherit; }
+  .actions { margin-top: 18px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .actions a { color: #1d4ed8; font-size: 13px; text-decoration: none; }
+  .actions a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<header>
+  <h1>发布结果</h1>
+  <p>公示镜像站以来源 URL 唯一保存；回执中断时只复查确认，不盲目重发。</p>
+</header>
+<main>
+  <div class="card">
+    <div class="status-line">
+      <span class="badge badge-{{ outcome.status }}">{{ outcome.label }}</span>
+      {% if outcome.interrupted %}<span style="font-size:12px;color:#9a3412;">回执曾中断</span>{% endif %}
+    </div>
+    <div class="message">{{ outcome.message }}</div>
+
+    <div class="meta">
+      <div><span class="k">项目编号</span><span class="v">{{ outcome.project_no }}</span></div>
+      <div><span class="k">公告类型</span><span class="v">{{ outcome.notice_type or '更正公告' }}</span></div>
+      <div><span class="k">发布时间</span><span class="v">{{ outcome.publish_time or '未识别' }}</span></div>
+      <div>
+        <span class="k">原公告链接</span>
+        <span class="v">
+          <a href="/view?url={{ outcome.source_url|urlencode }}" target="_blank">{{ outcome.source_url }}</a>
+        </span>
+      </div>
+      <div>
+        <span class="k">镜像链接</span>
+        <span class="v">
+          {% if outcome.mirror_link %}
+            <a href="{{ outcome.mirror_link }}" target="_blank" rel="noopener">{{ outcome.mirror_link }}</a>
+          {% else %}
+            <span style="color:#64748b;">尚未确认，暂无镜像链接</span>
+          {% endif %}
+        </span>
+      </div>
+    </div>
+
+    {% if outcome.status == 'pending' %}
+    <div class="pending-box">
+      <p>
+        当前保持<strong>待确认</strong>：系统不会自动重发。请稍后点击“重新查询确认”，
+        仅向镜像站查询该来源 URL 是否已刊登；若查询失败，仍会保持待确认。
+      </p>
+      <form method="post" action="/publish/confirm">
+        <input type="hidden" name="project_no" value="{{ outcome.project_no }}">
+        <input type="hidden" name="source_url" value="{{ outcome.source_url }}">
+        <input type="hidden" name="body_text" value="{{ outcome.content }}">
+        <input type="hidden" name="title" value="{{ outcome.title }}">
+        <input type="hidden" name="notice_type" value="{{ outcome.notice_type }}">
+        <input type="hidden" name="publish_time" value="{{ outcome.publish_time }}">
+        <input type="hidden" name="entry_url" value="{{ outcome.entry_url }}">
+        <input type="hidden" name="interrupted" value="{{ '1' if outcome.interrupted else '0' }}">
+        <button type="submit">重新查询确认</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if outcome.steps %}
+    <ol class="steps">
+      {% for step in outcome.steps %}<li>{{ step }}</li>{% endfor %}
+    </ol>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>本次提交的正文可见文字</h2>
+    <pre class="content">{{ outcome.content }}</pre>
+    {% if outcome.title %}<p style="font-size:13px;color:#64748b;margin:12px 0 0;">公告标题：{{ outcome.title }}</p>{% endif %}
+        <div class="actions">
+      <a href="{{ '/' if not outcome.entry_url else '/?url=' ~ (outcome.entry_url|urlencode) }}">返回核对结果</a>
+      <a href="/">重新输入列表页地址</a>
+    </div>
+  </div>
+</main>
+</body>
+</html>

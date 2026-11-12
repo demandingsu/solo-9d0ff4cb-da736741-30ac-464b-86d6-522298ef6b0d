@@ -3,8 +3,26 @@ services:
     build: ./webapp
     ports:
       - "8000:8000"
+    environment:
+      MIRROR_BASE_URL: http://mirror:8000
+      MIRROR_PUBLIC_BASE: http://localhost:8091
+      MIRROR_TIMEOUT: "15"
+      DEMO_MODE: "1"
     depends_on:
       - example-site
+      - mirror
+    restart: unless-stopped
+
+  mirror:
+    build: ./mirror
+    ports:
+      - "8091:8000"
+    environment:
+      MIRROR_PUBLIC_BASE: http://localhost:8091
+      MIRROR_DEMO_MODE: "1"
+      MIRROR_DB: /data/mirror.db
+    volumes:
+      - mirror-data:/data
     restart: unless-stopped
 
   example-site:
@@ -12,3 +30,6 @@ services:
     ports:
       - "8080:80"
     restart: unless-stopped
+
+volumes:
+  mirror-data:

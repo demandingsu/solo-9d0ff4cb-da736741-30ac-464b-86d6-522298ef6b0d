@@ -103,6 +103,48 @@ def _collect_labeled_pairs(soup: BeautifulSoup) -> dict[str, str]:
     return pairs
 
 
+# 正文可见文字的候选容器（按优先级）；均未命中时退回 body 全文
+_BODY_SELECTORS = (
+    "article",
+    "main",
+    "#content",
+    ".content",
+    ".article-content",
+    ".detail-content",
+    ".notice-content",
+    ".news-content",
+    ".content-body",
+)
+
+
+def extract_body_text(soup: BeautifulSoup) -> str:
+    """提取正文区域的可见文字，供发布到公示镜像站。
+
+    排除脚本、样式、隐藏元素与非正文的页头/导航；保留段落换行。
+    找不到明确的正文容器时退回 <body> 全文。
+    """
+    for name in ("script", "style", "noscript"):
+        for element in soup.find_all(name):
+            element.decompose()
+    for element in soup.find_all(attrs={"hidden": True}):
+        element.decompose()
+    for element in soup.find_all(style=True):
+        if re.search(r"display\s*:\s*none", element.get("style", ""), re.IGNORECASE):
+            element.decompose()
+
+    region = None
+    for selector in _BODY_SELECTORS:
+        nodes = [node for node in soup.select(selector) if node.get_text(strip=True)]
+        if nodes:
+            region = max(nodes, key=lambda node: len(node.get_text(strip=True)))
+            break
+    if region is None:
+        region = soup.body or soup
+
+    lines = [line.strip() for line in region.get_text("\n", strip=True).splitlines()]
+    return "\n".join(line for line in lines if line)
+
+
 def parse_detail(html: str, url: str) -> Announcement:
     """解析一个公告详情页，返回 Announcement。
 
@@ -152,6 +194,7 @@ def parse_detail(html: str, url: str) -> Announcement:
         declares_extension = True
 
     deadline = fields.get("deadline") or None
+    body_text = extract_body_text(soup)
 
     return Announcement(
         url=url,
@@ -161,4 +204,5 @@ def parse_detail(html: str, url: str) -> Announcement:
         publish_time=fields.get("publish_time", ""),
         deadline=deadline,
         declares_extension=declares_extension,
+        body_text=body_text,
     )

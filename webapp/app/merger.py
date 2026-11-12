@@ -17,8 +17,13 @@ from .utils import parse_time
 _CORRECTION_TYPE_RE = re.compile(r"更正|变更|澄清|修改|延期|顺延|补充")
 
 
-def _is_correction(ann: Announcement) -> bool:
+def is_correction(ann: Announcement) -> bool:
+    """是否为更正/变更/澄清/延期类公告（可作为待发布候选）。"""
     return bool(_CORRECTION_TYPE_RE.search(ann.notice_type)) or ann.declares_extension
+
+
+def _is_correction(ann: Announcement) -> bool:
+    return is_correction(ann)
 
 
 def _extract_project_name(ann: Announcement) -> str:

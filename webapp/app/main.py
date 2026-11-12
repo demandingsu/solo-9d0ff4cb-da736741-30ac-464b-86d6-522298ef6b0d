@@ -1,22 +1,38 @@
-"""FastAPI 入口：列表页地址录入、抓取归并、结果展示、页面代理。"""
+"""FastAPI 入口：列表页地址录入、抓取归并、结果展示、页面代理、发布到镜像站。"""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from .crawler import REQUEST_TIMEOUT, USER_AGENT, crawl
-from .merger import merge_announcements
+from .merger import is_correction, merge_announcements
+from .publisher import (
+    confirm_pending,
+    publish_announcement,
+    recall_outcome,
+    remember_outcome,
+)
+from .utils import parse_time
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 app = FastAPI(title="招标延期核对助手")
+
+
+def _demo_mode() -> bool:
+    return os.getenv("DEMO_MODE", "1").lower() in ("1", "true", "yes", "on")
+
+
+def _is_truthy(value: str) -> bool:
+    return value.strip().lower() in ("1", "true", "yes", "on")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -26,12 +42,102 @@ def index(request: Request, url: str | None = None) -> HTMLResponse:
         "entry_url": url or "",
         "report": None,
         "results": None,
+        "corrections": None,
+        "demo_mode": _demo_mode(),
     }
     if url and url.strip():
         report = crawl(url.strip())
+        results = merge_announcements(report.announcements)
         context["report"] = report
-        context["results"] = merge_announcements(report.announcements)
+        context["results"] = results
+
+        # 本次抓取结果中的更正/延期公告，供选择一条发布到镜像站（最新在前）。
+        corrections = [
+            ann
+            for result in results
+            for ann in result.announcements
+            if is_correction(ann)
+        ]
+        corrections.sort(
+            key=lambda a: (parse_time(a.publish_time) is None, parse_time(a.publish_time) or 0),
+            reverse=True,
+        )
+        context["corrections"] = corrections
     return templates.TemplateResponse("index.html", context)
+
+
+@app.post("/publish")
+def publish(
+    project_no: str = Form(...),
+    source_url: str = Form(...),
+    body_text: str = Form(...),
+    title: str = Form(""),
+    notice_type: str = Form(""),
+    publish_time: str = Form(""),
+    entry_url: str = Form(""),
+    simulate_interrupt: str = Form(""),
+) -> RedirectResponse:
+    """把选中的一条更正公告发布到公示镜像站（先查后发、回执中断复查）。"""
+    if not _validate_proxy_url(source_url):
+        raise HTTPException(status_code=400, detail="来源 URL 必须是 http(s) 合法地址")
+    if not project_no.strip() or not body_text.strip():
+        raise HTTPException(status_code=400, detail="项目编号与正文可见文字不能为空")
+
+    outcome = publish_announcement(
+        project_no=project_no.strip(),
+        source_url=source_url.strip(),
+        content=body_text,
+        title=title.strip(),
+        notice_type=notice_type.strip(),
+        publish_time=publish_time.strip(),
+        entry_url=entry_url.strip(),
+        simulate_interrupt=_is_truthy(simulate_interrupt),
+    )
+    token = remember_outcome(outcome)
+    # PRG：刷新结果页只读，不会再次提交发布请求。
+    return RedirectResponse(url=f"/publish/result/{token}", status_code=303)
+
+
+@app.post("/publish/confirm")
+def publish_confirm(
+    project_no: str = Form(...),
+    source_url: str = Form(...),
+    body_text: str = Form(...),
+    title: str = Form(""),
+    notice_type: str = Form(""),
+    publish_time: str = Form(""),
+    entry_url: str = Form(""),
+    interrupted: str = Form(""),
+) -> RedirectResponse:
+    """待确认状态下的人工复查：只查询，不重发。"""
+    if not _validate_proxy_url(source_url):
+        raise HTTPException(status_code=400, detail="来源 URL 必须是 http(s) 合法地址")
+    outcome = confirm_pending(
+        project_no=project_no.strip(),
+        source_url=source_url.strip(),
+        content=body_text,
+        title=title.strip(),
+        notice_type=notice_type.strip(),
+        publish_time=publish_time.strip(),
+        entry_url=entry_url.strip(),
+        interrupted=_is_truthy(interrupted),
+    )
+    token = remember_outcome(outcome)
+    return RedirectResponse(url=f"/publish/result/{token}", status_code=303)
+
+
+@app.get("/publish/result/{token}", response_class=HTMLResponse)
+def publish_result(request: Request, token: str) -> HTMLResponse:
+    outcome = recall_outcome(token)
+    if outcome is None:
+        return HTMLResponse(
+            "<h1>发布结果已过期</h1><p>请返回核对页重新操作。</p>", status_code=404
+        )
+    return templates.TemplateResponse(
+        "publish_result.html",
+        {"request": request, "outcome": outcome, "demo_mode": _demo_mode()},
+    )
+
 
 
 @app.get("/health")

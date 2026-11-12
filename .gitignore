@@ -4,3 +4,6 @@ __pycache__/
 venv/
 .pytest_cache/
 example-site/site/
+mirror/*.db
+mirror/*.db-wal
+mirror/*.db-shm
